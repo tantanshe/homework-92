@@ -1,8 +1,13 @@
 import express from 'express';
 import expressWs from 'express-ws';
-import cors from 'cors';
+import cors, {CorsOptions} from 'cors';
 import {WebSocket} from 'ws';
 import usersRouter from './routers/users';
+import Message from './models/Message';
+import messagesRouter from './routers/messages';
+import User from './models/User';
+import mongoose from 'mongoose';
+import {randomUUID} from 'crypto';
 
 export interface IncomingMessage {
   type: string;
@@ -13,48 +18,134 @@ const app = express();
 
 expressWs(app);
 const port = 8000;
-app.use(cors());
-app.use('/users', usersRouter);
 
+const whitelist = ['http://localhost:8000', 'http://localhost:5173'];
+const corsOptions: CorsOptions = {
+  origin: (origin, callback) => {
+    if (!origin || whitelist.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  }
+};
+
+app.use(cors(corsOptions));
+app.use(express.json());
+app.use('/users', usersRouter);
+app.use('/messages', messagesRouter);
+
+const connectedClients: { ws: WebSocket; username: string; id: string; }[] = [];
 
 const router = express.Router();
 
-const connectedClients: WebSocket[] = [];
+const usersList = () => {
+  const userList = connectedClients.map((client) => ({
+    id: client.id,
+    username: client.username,
+  }));
+
+  connectedClients.forEach((client) => {
+    client.ws.send(
+      JSON.stringify({
+        type: 'USER_LIST',
+        payload: userList,
+      })
+    );
+  });
+};
 
 router.ws('/chat', (ws, req) => {
-  connectedClients.push(ws);
-  console.log('client connected, total clients: ', connectedClients.length);
-  let username = 'Anonymous';
-  ws.on('message', (message: string) => {
+  let authenticatedUser: string | null;
+
+  ws.on('message', async (message: string) => {
     try {
       const decodedMessage = JSON.parse(message.toString()) as IncomingMessage;
-      if (decodedMessage.type === 'SET_USERNAME') {
-        username = decodedMessage.payload;
-      } else if (decodedMessage.type === 'SET_MESSAGE') {
+
+      if (decodedMessage.type === 'LOGIN') {
+        console.log('Received LOGIN request with token:', decodedMessage.payload);
+
+        const user = await User.findOne({token: decodedMessage.payload});
+        if (!user) {
+          console.log('User not found for token:', decodedMessage.payload);
+          ws.send(JSON.stringify({error: 'Invalid token'}));
+          ws.close();
+          return;
+        }
+
+        authenticatedUser = user.username;
+
+        connectedClients.push({ws, username: authenticatedUser, id: randomUUID()});
+        console.log('Client connected: ', authenticatedUser);
+
+        usersList();
+
+        const lastMessages = await Message.find().sort({createdAt: -1}).limit(30);
+        ws.send(
+          JSON.stringify({type: 'INITIAL_MESSAGES', payload: lastMessages})
+        );
+
+      } else if (decodedMessage.type === 'MESSAGE' && authenticatedUser) {
+        const newMessage = new Message({
+          username: authenticatedUser,
+          text: decodedMessage.payload,
+        });
+        await newMessage.save();
+
         connectedClients.forEach((client) => {
-          client.send(JSON.stringify({
-            type: 'NEW_MESSAGE',
-            payload: {
-              username,
-              text: decodedMessage.payload,
-            }
-          }));
+          client.ws.send(
+            JSON.stringify({
+              type: 'MESSAGE',
+              payload: {
+                username: authenticatedUser,
+                text: decodedMessage.payload,
+              },
+            })
+          );
         });
       }
     } catch (error) {
-      ws.send(JSON.stringify({error: 'Invalid message'}));
+      ws.send(JSON.stringify({error: 'Invalid message format'}));
     }
   });
 
   ws.on('close', () => {
-    console.log('client disconnected!');
-    const index = connectedClients.indexOf(ws);
-    connectedClients.splice(index, 1);
+    console.log('Client disconnected!');
+
+    const index = connectedClients.findIndex((client) => client.ws === ws);
+    if (index !== -1) {
+      const disconnectedUser = connectedClients[index];
+      connectedClients.splice(index, 1);
+      connectedClients.forEach((client) => {
+        client.ws.send(
+          JSON.stringify({
+            type: 'USER_LEAVE',
+            payload: {id: disconnectedUser.id},
+          })
+        );
+      });
+    }
+
+    usersList();
   });
 });
 
+const run = async () => {
+  await mongoose.connect('mongodb://localhost/chat');
+
+  app.listen(port, () => {
+    console.log(`Server running at http://localhost:${port}`);
+  });
+
+  process.on('exit', () => {
+    mongoose.disconnect();
+  });
+};
+
+run().catch(console.error);
+
 app.use(router);
 
-app.listen(port, () => {
-  console.log(`Server started on ${port} port!`);
+app.listen(8000, () => {
+  console.log('WebSocket server is listening on ws://localhost:8000/chat');
 });
