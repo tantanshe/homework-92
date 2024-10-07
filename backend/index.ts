@@ -77,14 +77,19 @@ router.ws('/chat', (ws, req) => {
 
         connectedClients.push({ws, username: authenticatedUser, id: randomUUID()});
         console.log('Client connected: ', authenticatedUser);
-
         usersList();
 
-        const lastMessages = await Message.find().sort({createdAt: -1}).limit(30);
+        const lastMessages = await Message.find().sort({createdAt: 1}).limit(30);
         ws.send(
           JSON.stringify({type: 'INITIAL_MESSAGES', payload: lastMessages})
         );
 
+      } else if (decodedMessage.type === 'USER_LEAVE' && authenticatedUser) {
+        const index = connectedClients.findIndex(client => client.username === authenticatedUser);
+        if (index !== -1) {
+          connectedClients.splice(index, 1);
+          usersList();
+        }
       } else if (decodedMessage.type === 'MESSAGE' && authenticatedUser) {
         const newMessage = new Message({
           username: authenticatedUser,

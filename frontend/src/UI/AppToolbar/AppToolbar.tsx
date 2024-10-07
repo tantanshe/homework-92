@@ -32,7 +32,7 @@ const AppToolbar = () => {
           {user ? (
             <Grid item>
               <Typography>
-              User is logged in
+              Welcome, {user.username}!
               </Typography>
               <Button onClick={handleLogout} sx={{
                 backgroundColor: '#ffffff',

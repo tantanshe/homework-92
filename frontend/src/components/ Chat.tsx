@@ -2,6 +2,7 @@ import React, {useEffect, useState, useRef} from 'react';
 import {useNavigate} from 'react-router-dom';
 import {useAppSelector} from '../app/hooks';
 import {selectUser} from '../features/users/usersSlice';
+import {Box, Button, Grid, List, ListItem, Paper, TextField, Typography} from '@mui/material';
 
 type Message = {
   username: string;
@@ -50,7 +51,7 @@ const Chat: React.FC = () => {
           username: data.payload.username,
           message: data.payload.text,
         };
-        setMessages((prevMessages) => [newMessage, ...prevMessages]);
+        setMessages((prevMessages) => [...prevMessages, newMessage]);
       } else if (data.type === 'USER_JOIN') {
         setParticipants((prevParticipants) => [...prevParticipants, data.payload]);
       } else if (data.type === 'USER_LEAVE') {
@@ -88,36 +89,48 @@ const Chat: React.FC = () => {
   };
 
   return (
-    <div>
-      <div>
-        <h3>Online users</h3>
-        <ul>
-          {participants.map((user) => (
-            <li key={user.id}>{user.username}</li>
-          ))}
-        </ul>
-      </div>
-      <div>
-        <h3>Chat</h3>
-        <ul>
-          {messages.map((msg, index) => (
-            <li key={index}>
-              <strong>{msg.username}:</strong> {msg.message}
-            </li>
-          ))}
-        </ul>
-      </div>
-      <input
-        type="text"
-        placeholder="Type your message"
-        value={message}
-        onChange={(e) => setMessage(e.target.value)}
-      />
-      <button onClick={handleSendMessage}>
-        Send
-      </button>
-    </div>
+    <Box sx={{flexGrow: 1, p: 2, display: 'flex'}}>
+      <Grid container spacing={2}>
+        <Grid item xs={3}>
+          <Paper sx={{padding: 2, height: '70%', overflow: 'auto'}}>
+            <Typography variant="h6">Online Users</Typography>
+            <List>
+              {participants.map((user) => (
+                <ListItem key={user.id}>{user.username}</ListItem>
+              ))}
+            </List>
+          </Paper>
+        </Grid>
+        <Grid item xs={9}>
+          <Paper sx={{padding: 2, height: '70%', display: 'flex', flexDirection: 'column'}}>
+            <Typography variant="h6">Chat</Typography>
+            <Box sx={{flexGrow: 1, overflow: 'auto'}}>
+              <List>
+                {messages.map((msg, index) => (
+                  <ListItem key={index}>
+                    <strong>{msg.username}:</strong> {msg.message}
+                  </ListItem>
+                ))}
+              </List>
+            </Box>
+            <Box sx={{display: 'flex', marginTop: 2}}>
+              <TextField
+                variant="outlined"
+                placeholder="Type your message"
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                fullWidth
+              />
+              <Button onClick={handleSendMessage} variant="contained" sx={{marginLeft: 1}}>
+                Send
+              </Button>
+            </Box>
+          </Paper>
+        </Grid>
+      </Grid>
+    </Box>
   );
 };
+
 
 export default Chat;
